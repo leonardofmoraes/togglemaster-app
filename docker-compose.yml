@@ -1,0 +1,150 @@
+services:
+  # ---------- Bancos de dados ----------
+  postgres-auth:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: toggleadmin
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: auth_db
+    volumes:
+      - ./auth-service/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U toggleadmin -d auth_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - togglemaster
+
+  postgres-flag:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: toggleadmin
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: flags_db
+    volumes:
+      - ./flag-service/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U toggleadmin -d flags_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - togglemaster
+
+  postgres-targeting:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: toggleadmin
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: targeting_db
+    volumes:
+      - ./targeting-service/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U toggleadmin -d targeting_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - togglemaster
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - togglemaster
+
+  # ---------- Microsserviços ----------
+  auth-service:
+    build: ./auth-service
+    environment:
+      DATABASE_URL: postgres://toggleadmin:${DB_PASSWORD}@postgres-auth:5432/auth_db
+      PORT: "8001"
+      MASTER_KEY: ${MASTER_KEY}
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+    networks:
+      - togglemaster
+
+  flag-service:
+    build: ./flag-service
+    environment:
+      DATABASE_URL: postgres://toggleadmin:${DB_PASSWORD}@postgres-flag:5432/flags_db
+      PORT: "8002"
+      AUTH_SERVICE_URL: http://auth-service:8001
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres-flag:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    networks:
+      - togglemaster
+
+  targeting-service:
+    build: ./targeting-service
+    environment:
+      DATABASE_URL: postgres://toggleadmin:${DB_PASSWORD}@postgres-targeting:5432/targeting_db
+      PORT: "8003"
+      AUTH_SERVICE_URL: http://auth-service:8001
+    ports:
+      - "8003:8003"
+    depends_on:
+      postgres-targeting:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    networks:
+      - togglemaster
+
+  evaluation-service:
+    build: ./evaluation-service
+    environment:
+      PORT: "8004"
+      REDIS_URL: redis://redis:6379
+      FLAG_SERVICE_URL: http://flag-service:8002
+      TARGETING_SERVICE_URL: http://targeting-service:8003
+      SERVICE_API_KEY: ${SERVICE_API_KEY}
+      AWS_SQS_URL: ${AWS_SQS_URL}
+      AWS_REGION: ${AWS_REGION}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
+    ports:
+      - "8004:8004"
+    depends_on:
+      - redis
+      - flag-service
+      - targeting-service
+    networks:
+      - togglemaster
+
+  analytics-service:
+    build: ./analytics-service
+    environment:
+      PORT: "8005"
+      AWS_SQS_URL: ${AWS_SQS_URL}
+      AWS_DYNAMODB_TABLE: ToggleMasterAnalytics
+      AWS_REGION: ${AWS_REGION}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
+    ports:
+      - "8005:8005"
+    networks:
+      - togglemaster
+
+networks:
+  togglemaster:
+    driver: bridge
