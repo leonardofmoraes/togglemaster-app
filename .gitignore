@@ -1,0 +1,9 @@
+# Serviços são repositórios independentes, não rastrear aqui
+analytics-service/
+auth-service/
+evaluation-service/
+flag-service/
+targeting-service/
+
+# Ambiente local
+.env

@@ -1,4 +1,0 @@
-[submodule "targeting-service"]
-	path = targeting-service
-	url = https://github.com/leonardofmoraes/targeting-service
-	branch = main
