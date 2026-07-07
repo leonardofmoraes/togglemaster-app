@@ -61,6 +61,29 @@ services:
     networks:
       - togglemaster
 
+  # ---------- Observabilidade (dev local) ----------
+  jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    ports:
+      - "16686:16686" # UI: http://localhost:16686
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - togglemaster
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.153.0
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+    depends_on:
+      - jaeger
+    networks:
+      - togglemaster
+
   # ---------- Microsserviços ----------
   auth-service:
     build: ./auth-service
@@ -68,11 +91,15 @@ services:
       DATABASE_URL: postgres://toggleadmin:${DB_PASSWORD}@postgres-auth:5432/auth_db
       PORT: "8001"
       MASTER_KEY: ${MASTER_KEY}
+      OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector:4317"
+      SERVICE_VERSION: "1.0.0"
     ports:
       - "8001:8001"
     depends_on:
       postgres-auth:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
     networks:
       - togglemaster
 
@@ -82,12 +109,16 @@ services:
       DATABASE_URL: postgres://toggleadmin:${DB_PASSWORD}@postgres-flag:5432/flags_db
       PORT: "8002"
       AUTH_SERVICE_URL: http://auth-service:8001
+      OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector:4317"
+      SERVICE_VERSION: "1.0.0"
     ports:
       - "8002:8002"
     depends_on:
       postgres-flag:
         condition: service_healthy
       auth-service:
+        condition: service_started
+      otel-collector:
         condition: service_started
     networks:
       - togglemaster
@@ -98,12 +129,16 @@ services:
       DATABASE_URL: postgres://toggleadmin:${DB_PASSWORD}@postgres-targeting:5432/targeting_db
       PORT: "8003"
       AUTH_SERVICE_URL: http://auth-service:8001
+      OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector:4317"
+      SERVICE_VERSION: "1.0.0"
     ports:
       - "8003:8003"
     depends_on:
       postgres-targeting:
         condition: service_healthy
       auth-service:
+        condition: service_started
+      otel-collector:
         condition: service_started
     networks:
       - togglemaster
@@ -121,12 +156,15 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
+      OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector:4317"
+      SERVICE_VERSION: "1.0.0"
     ports:
       - "8004:8004"
     depends_on:
       - redis
       - flag-service
       - targeting-service
+      - otel-collector
     networks:
       - togglemaster
 
@@ -140,8 +178,12 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
+      OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector:4317"
+      SERVICE_VERSION: "1.0.0"
     ports:
       - "8005:8005"
+    depends_on:
+      - otel-collector
     networks:
       - togglemaster
 
